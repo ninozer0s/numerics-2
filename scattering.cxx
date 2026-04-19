@@ -14,7 +14,7 @@ MatrixXd make_scattering_matrix(int n, double kappa) {
     for (int j = 0; j < n; ++j) {
         if (j > 0)     S(j - 1, j) = a; // photons scatter left
         if (j < n - 1) S(j + 1, j) = a; // photons scatter right
-    }
+    } // goodnight
 
     return S;
 }
@@ -28,7 +28,7 @@ VectorXd steady_state(MatrixXd const& S, VectorXd const& i) {
 VectorXd solve_minres(MatrixXd const& A, VectorXd const& b, size_t r) {
     int n = A.rows();    
     MatrixXd Q = MatrixXd::Zero(n, r);
-
+    // it's the krylov subspace
     VectorXd v = b;
     for (size_t j = 0; j < r; ++j) {
         Q.col(j) = v;
@@ -40,7 +40,7 @@ VectorXd solve_minres(MatrixXd const& A, VectorXd const& b, size_t r) {
 
     MatrixXd AQ = A * Q_ortho;
     VectorXd y = AQ.householderQr().solve(b); 
-
+    // we must not forget to return to our space
     return Q_ortho * y;
 }
 
@@ -60,7 +60,7 @@ int main() {
     VectorXd p = steady_state(S, i);
     VectorXd p_min = solve_minres(Other_matrix, i, r);
 
-    // print first few values instead of debugging
+    // print first few values instead of tedious debugging
     cout << "steady state:\n";
     for (int j = 0; j < min(n, 10); ++j) {
         cout << "p(" << j << ") = " << p(j) << " " << p_min(j) << '\n';
