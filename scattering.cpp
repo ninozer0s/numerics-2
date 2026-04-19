@@ -45,7 +45,7 @@ VectorXd solve_minres(MatrixXd const& A, VectorXd const& b, size_t r) {
 }
 
 int main() { 
-    // reasonable example values
+    // some example values
     int n = 100;
     double kappa = 0.1;
     size_t r = 20;
@@ -74,15 +74,14 @@ int main() {
     }
     data.close();
 
-    // a good to attempt at creating gnuplot
+    // an ok to attempt at creating gnuplot
     ofstream gp("plot_steady_state.gnuplot");
     gp << "set terminal pdfcairo\n";
     gp << "set output 'steady_state.pdf'\n";
     gp << "set xlabel 'site index'\n";
     gp << "set ylabel 'steady state photons'\n";
     gp << "set title 'Steady state of scattering model'\n";
-    gp << "plot 'steady_state.dat' using 1:2 with lines lw 2 title 'n="
-       << n << ", kappa=" << kappa << "'\n";
+    gp << "plot 'steady_state.dat' using 1:2 with lines lw 2 title 'Reference', \\\n";
     gp << "     'steady_state.dat' u 1:3 w lines dt 2 title 'MINRES (r=" << r << ")'\n";
     gp.close();
 
