@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <cstdlib>
+#include <cctype>
 
 using namespace Eigen;
 using namespace std;
@@ -20,7 +21,7 @@ MatrixXd read_ecsv(ifstream& file, size_t cols) {
 
     while (getline(file, line)) {
         if (line.empty()) continue;
-        if (!isdigit(line[0]) && line[0] != '-' && line[0] != '+') continue;
+        if (!isdigit((unsigned char)line[0]) && line[0] != '-' && line[0] != '+') continue;
 
         replace(line.begin(), line.end(), ',', ' ');
 
@@ -59,152 +60,200 @@ void write_matrix(string const& filename, MatrixXd const& A) {
     }
 }
 
+void rotate_columns(MatrixXd& M, int p, int q, double c, double s) {
+    VectorXd Mp = M.col(p);
+    VectorXd Mq = M.col(q);
+
+    M.col(p) = c * Mp + s * Mq;
+    M.col(q) = -s * Mp + c * Mq;
+}
+
+void rotate_rows(MatrixXd& M, int p, int q, double c, double s) {
+    RowVectorXd Mp = M.row(p);
+    RowVectorXd Mq = M.row(q);
+
+    M.row(p) = c * Mp + s * Mq;
+    M.row(q) = -s * Mp + c * Mq;
+}
+
+double max_offdiag(MatrixXd const& M) {
+    double max_value = 0.0;
+
+    for (int i = 0; i < M.rows(); ++i) {
+        for (int j = 0; j < M.cols(); ++j) {
+            if (i != j) {
+                max_value = max(max_value, abs(M(i, j)));
+            }
+        }
+    }
+
+    return max_value;
+}
+
+void apply_left_2x2(MatrixXd& S, MatrixXd& Uj, int p, int q, Matrix2d const& L) {
+    RowVectorXd Sp = S.row(p);
+    RowVectorXd Sq = S.row(q);
+
+    S.row(p) = L(0, 0) * Sp + L(1, 0) * Sq;
+    S.row(q) = L(0, 1) * Sp + L(1, 1) * Sq;
+
+    VectorXd Up = Uj.col(p);
+    VectorXd Uq = Uj.col(q);
+
+    Uj.col(p) = L(0, 0) * Up + L(1, 0) * Uq;
+    Uj.col(q) = L(0, 1) * Up + L(1, 1) * Uq;
+}
+
 size_t svd_jacobi(
     MatrixXd const& A, MatrixXd& U, VectorXd& s, MatrixXd& V,
     double max_off_diagonal, size_t max_sweeps = 100
 ) {
-    // check out, good additional sources as explanations (helped us) 
-    // https://www.cs.utexas.edu/~inderjit/public_papers/HLA_SVD.pdf 
-    // https://xilinx.github.io/Vitis_Libraries/quantitative_finance/2019.2/guide_L1/SVD/SVD.html
-    // As in the source: "Jacobi methods apply plane rotations to the entire matrix A ...
-    // Two-sided Jacboi methods iteratively apply rotations on both sides of matrix A to bring it to diagonal form."
-    
     const int m = A.rows();
-    const int n = min(A.rows(), A.cols());
+    const int n = A.cols();
 
-    MatrixXd S = A;
-    MatrixXd P = MatrixXd::Identity(A.rows(), A.rows());
-    MatrixXd Q = MatrixXd::Identity(A.cols(), A.cols());
+    MatrixXd Rfull = A;
+    MatrixXd Q = MatrixXd::Identity(m, m);
+
+    for (int j = 0; j < n; ++j) {
+        for (int i = m - 1; i > j; --i) {
+            double x = Rfull(i - 1, j);
+            double y = Rfull(i, j);
+
+            if (abs(y) < 1e-14) continue;
+
+            double r = hypot(x, y);
+            double c = x / r;
+            double sn = y / r;
+
+            rotate_rows(Rfull, i - 1, i, c, sn);
+            rotate_columns(Q, i - 1, i, c, sn);
+        }
+    }
+
+    MatrixXd S = Rfull.topRows(n);
+    MatrixXd Uj = MatrixXd::Identity(n, n);
+    V = MatrixXd::Identity(n, n);
 
     size_t sweep = 0;
+
     for (; sweep < max_sweeps; ++sweep) {
-        double max_off = 0.0;
+        double off = max_offdiag(S);
 
-        for (int k = 0; k < n - 1; ++k) {
-            for (int l = k + 1; l < n; ++l) {
-                
-                // we want to diagonalize, iteratively get the elements for angle calculation
-                double Skk = S(k, k);
-                double Sll = S(l, l);
-                double Skl = S(k, l);
-                double Slk = S(l, k);
+        if (off < max_off_diagonal) break;
 
-                max_off = max({ max_off, abs(Skl), abs(Slk) });
-                if (max(abs(Skl), abs(Slk)) < max_off_diagonal) continue;
+        for (int p = 0; p < n - 1; ++p) {
+            for (int q = p + 1; q < n; ++q) {
+                double a = S(p, p);
+                double b = S(p, q);
+                double c = S(q, p);
+                double d = S(q, q);
 
-                // alpha, the first in the line of rotation angles
-                // left rotation, helps symmetrize the elements
-                // tan(alpha) = (S_l^k - S_k^l) / (S_k^k + S_l^l) as in the cheat sheet
-                double alpha = atan2(Slk - Skl, Skk + Sll);
-                double ca = cos(alpha);
-                double sa = sin(alpha);
+                if (max(abs(b), abs(c)) < max_off_diagonal) continue;
 
-                // T = G(k, l, alpha) * S    next step matrix
-                // the formulae and the process of each matrix with cosine and sine we use from the cheat sheet
-                // we know this constellation from the givens rotation
-                VectorXd row_k = S.row(k);
-                VectorXd row_l = S.row(l);
-                S.row(k) = ca * row_k - sa * row_l;
-                S.row(l) = sa * row_k + ca * row_l;
+                Matrix2d C;
+                C << a, b,
+                     c, d;
 
-                // beta, the second rotation angle
-                // right rotation, diagonalize 2x2 block
-                // tan(2*beta) = 2*T_k^l / (T_l^l - T_k^k)
-                double Tkk = S(k, k);
-                double Tll = S(l, l);
-                double Tkl = S(k, l);
-                double beta = 0.5 * atan2(2.0 * Tkl, Tll - Tkk);
-                double cb = cos(beta);
-                double sb = sin(beta);
+                double m11 = a * a + c * c;
+                double m22 = b * b + d * d;
+                double m12 = a * b + c * d;
 
-                // S_new = G(beta) * T * G*(beta) 
-                // apply left G(beta)
-                row_k = S.row(k);
-                row_l = S.row(l);
-                S.row(k) = cb * row_k - sb * row_l;
-                S.row(l) = sb * row_k + cb * row_l;
+                double phi = 0.5 * atan2(2.0 * m12, m11 - m22);
+                double cg = cos(phi);
+                double sg = sin(phi);
 
-                // apply right G*(beta)
-                VectorXd col_k = S.col(k);
-                VectorXd col_l = S.col(l);
-                S.col(k) = cb * col_k - sb * col_l;
-                S.col(l) = sb * col_k + cb * col_l;
+                Matrix2d G;
+                G << cg, -sg,
+                     sg,  cg;
 
-                // P and Q add up the rotations -> so they become U and V
-                // P = P * G*(alpha + beta)
-                double cab = cos(alpha + beta);
-                double sab = sin(alpha + beta);
-                for (int i = 0; i < A.rows(); ++i) {
-                    double Pik = cab * P(i, k) - sab * P(i, l);
-                    double Pil = sab * P(i, k) + cab * P(i, l);
-                    P(i, k) = Pik;
-                    P(i, l) = Pil;
-                }
-                VectorXd Pk = P.col(k);
-                VectorXd Pl = P.col(l);
-                P.col(k) = cab * Pk - sab * Pl;
-                P.col(l) = sab * Pk + cab * Pl;
+                Matrix2d T = C * G;
 
-                // Q = Q * G*(beta
-                VectorXd Qk = Q.col(k);
-                VectorXd Ql = Q.col(l);
-                Q.col(k) = cb * Qk - sb * Ql;
-                Q.col(l) = sb * Qk + cb * Ql;
+                double sigma1 = T.col(0).norm();
+                double sigma2 = T.col(1).norm();
+
+                if (sigma1 < 1e-14 || sigma2 < 1e-14) continue;
+
+                Matrix2d L;
+                L.col(0) = T.col(0) / sigma1;
+                L.col(1) = T.col(1) / sigma2;
+
+                rotate_columns(S, p, q, cg, sg);
+                rotate_columns(V, p, q, cg, sg);
+
+                apply_left_2x2(S, Uj, p, q, L);
             }
         }
-        if (max_off < max_off_diagonal) break;
     }
 
-    // make sure al singular values are positive
-    // for that we'd have to also compensate with that column in the matrix by -1 multiplication
+    MatrixXd Qthin = Q.leftCols(n);
+    U = Qthin * Uj;
+
     s.resize(n);
-    U.resize(A.rows(), n);
-    V.resize(A.cols(), n);
 
-    for (int k = 0; k < n; ++k) {
-        double val = S(k, k);
-        s(k) = abs(val);
-        double sign = (val >= 0) ? 1.0 : -1.0;
-        U.col(k) = P.col(k) * sign;
-        V.col(k) = Q.col(k);
+    for (int i = 0; i < n; ++i) {
+        s(i) = S(i, i);
+
+        if (s(i) < 0.0) {
+            s(i) = -s(i);
+            U.col(i) *= -1.0;
+        }
     }
+
+    vector<int> idx(n);
+
+    for (int i = 0; i < n; ++i) {
+        idx[i] = i;
+    }
+
+    sort(idx.begin(), idx.end(), [&](int a, int b) {
+        return s(a) > s(b);
+    });
+
+    VectorXd s_sorted(n);
+    MatrixXd U_sorted(m, n);
+    MatrixXd V_sorted(n, n);
+
+    for (int i = 0; i < n; ++i) {
+        s_sorted(i) = s(idx[i]);
+        U_sorted.col(i) = U.col(idx[i]);
+        V_sorted.col(i) = V.col(idx[i]);
+    }
+
+    s = s_sorted;
+    U = U_sorted;
+    V = V_sorted;
 
     return sweep + 1;
 }
-
-
-
-
-
 
 MatrixXd rank_k_approx(MatrixXd const& U, VectorXd const& s, MatrixXd const& V, int K) {
     return U.leftCols(K) * s.head(K).asDiagonal() * V.leftCols(K).transpose();
 }
 
-    void write_python_plot_script() {
-        ofstream py("make_reduction_pdf.py");
+void write_python_plot_script() {
+    ofstream py("make_reduction_pdf.py");
 
-        py << R"(import numpy as np
-    import matplotlib.pyplot as plt
+    py << R"(import numpy as np
+import matplotlib.pyplot as plt
 
-    files = [
-        ("Original", "original.dat"),
-        ("K = 5", "reduction_K5.dat"),
-        ("K = 10", "reduction_K10.dat"),
-        ("K = 20", "reduction_K20.dat"),
-    ]
+files = [
+    ("Original", "original.dat"),
+    ("K = 5", "reduction_K5.dat"),
+    ("K = 10", "reduction_K10.dat"),
+    ("K = 20", "reduction_K20.dat"),
+]
 
-    fig, axes = plt.subplots(1, 4, figsize=(12, 4), constrained_layout=True)
+fig, axes = plt.subplots(1, 4, figsize=(12, 4), constrained_layout=True)
 
-    for ax, (title, filename) in zip(axes, files):
-        A = np.loadtxt(filename)
-        ax.imshow(A, cmap="gray", vmin=0, vmax=1)
-        ax.set_title(title)
-        ax.axis("off")
+for ax, (title, filename) in zip(axes, files):
+    A = np.loadtxt(filename)
+    A = np.clip(A, 0.0, 1.0)
+    ax.imshow(A, cmap="gray", vmin=0, vmax=1)
+    ax.set_title(title)
+    ax.axis("off")
 
-
-    plt.savefig("reduction.pdf")
-    )";
+plt.savefig("reduction.pdf", bbox_inches="tight")
+)";
 }
 
 int main() {
@@ -230,7 +279,7 @@ int main() {
 
         cout << "Jacobi sweeps: " << sweeps << endl;
         cout << "Largest singular values: "
-            << s.head(10).transpose() << endl;
+             << s.head(10).transpose() << endl;
 
         MatrixXd A5 = rank_k_approx(U, s, V, 5);
         MatrixXd A10 = rank_k_approx(U, s, V, 10);
