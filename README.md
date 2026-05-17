@@ -1,4 +1,4 @@
-# Protokoll Abgabe NMS1
+# Protokoll Abgabe NMS5
 
 ## Team
 
@@ -7,23 +7,11 @@
 
 ## Aufgaben
 
-### scattering.cxx
+### xe_dimer.cxx
 
-Aufwand: 4h (Stunden)
-
-Zusammenfassung:
-
-* Die Schwierigkeit ist fair im Kontext des Fachs
-* Probleme mit IDEs und die Eigen library zu laden
-
-
-
-### MINRES
-
-Aufwand: 3h
+Aufwand: 5h
 
 Zusammenfassung:
 
-* Die Schwierigkeit war nicht allzu extrem nach der ersten
-* Erste größere Hürde war, sich mit Householder Matrix vertraut zu machen
-
+* Die Schwierigkeit war fair, aber die Umsetzung war etwas fehleranfällig.
+* Hürden waren die Wahl eines Energieintervalls und die numerische Stabilität, dauerte auch ziemlcih lange die Ausführung
