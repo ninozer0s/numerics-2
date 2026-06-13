@@ -1,0 +1,37 @@
+Simulated-Annealing von NMR-Gehirn-Bildern
+============================================
+
+Modell:
+H = -J Summe_<ij> delta_{sigma_i,sigma_j} + Summe_i E_{z_i}(sigma_i)
+E_z(sigma) = (z - MW_sigma)^2/(2 SIGMA_sigma^2) + ln(SIGMA_sigma)
+Es werden die 4 naechsten Nachbarn verwendet.
+
+Parameterwahl:
+Ti = 3: hoch genug, damit am Anfang auch schlechtere lokale Schritte akzeptiert werden.
+Tf = 0.02: klein genug, damit am Ende praktisch nur noch energiesenkende Schritte akzeptiert werden.
+lambda = 1.05: langsames geometrisches Abkuehlen T -> T/lambda.
+# sweeps = 5 pro Temperatur: Kompromiss aus Laufzeit und Relaxation.
+J = 1.2: Nachbarschaftskorrelation glaettet das Bild, ohne kleine Gewebe komplett zu unterdruecken.
+Zufallsseed = 123: feste Wahl fuer reproduzierbare Ergebnisse.
+
+Vergleichsrechnung J = 0 (SegLocal.dat)
+Gewebe  falsche Pixel / Gesamtpixel  Fehler
+  BG      158 /  30822        0.005126
+  WM     2026 /  20128        0.100656
+  GM     3932 /  20009        0.196512
+ CSF      163 /   1847        0.088251
+  SB     1666 /  11776        0.141474
+Gesamt 7945 / 84582        0.093933
+
+Simulated Annealing mit J != 0 (SegSA.dat)
+Gewebe  falsche Pixel / Gesamtpixel  Fehler
+  BG       36 /  30822        0.001168
+  WM      347 /  20128        0.017240
+  GM      292 /  20009        0.014593
+ CSF       39 /   1847        0.021115
+  SB      570 /  11776        0.048404
+Gesamt 1284 / 84582        0.015181
+
+Erzeugte Dateien:
+SegLocal.dat, SegSA.dat, Protokoll.txt
+PS-Dateien werden mit plotSeg.gnu erzeugt.
